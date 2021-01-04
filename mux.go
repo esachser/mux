@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"sync"
 )
 
 var (
@@ -23,7 +24,7 @@ var (
 
 // NewRouter returns a new router instance.
 func NewRouter() *Router {
-	return &Router{namedRoutes: make(map[string]*Route)}
+	return &Router{namedRoutes: make(map[string]*Route), lock: &sync.RWMutex{}}
 }
 
 // Router registers routes to be matched and dispatches a handler.
@@ -67,6 +68,9 @@ type Router struct {
 
 	// configuration shared with `Route`
 	routeConf
+
+	// mutex for inserting or removal of routes
+	lock *sync.RWMutex
 }
 
 // common route configuration shared between `Router` and `Route`
@@ -134,6 +138,7 @@ func copyRouteRegexp(r *routeRegexp) *routeRegexp {
 // (eg: not found) has a registered handler, the handler is assigned to the Handler
 // field of the match argument.
 func (r *Router) Match(req *http.Request, match *RouteMatch) bool {
+	r.lock.RLock()
 	for _, route := range r.routes {
 		if route.Match(req, match) {
 			// Build middleware chain if no error was found
@@ -145,6 +150,7 @@ func (r *Router) Match(req *http.Request, match *RouteMatch) bool {
 			return true
 		}
 	}
+	r.lock.RUnlock()
 
 	if match.MatchErr == ErrMethodMismatch {
 		if r.MethodNotAllowedHandler != nil {
@@ -276,9 +282,44 @@ func (r *Router) UseEncodedPath() *Router {
 // NewRoute registers an empty route.
 func (r *Router) NewRoute() *Route {
 	// initialize a route with a copy of the parent router's configuration
+	r.lock.Lock()
 	route := &Route{routeConf: copyRouteConf(r.routeConf), namedRoutes: r.namedRoutes}
 	r.routes = append(r.routes, route)
+	r.lock.Unlock()
 	return route
+}
+
+// RemoveRoute removes route from list and Named routers
+func (r *Router) RemoveRoute(route *Route) {
+	r.lock.Lock()
+	var i int
+	var rt *Route
+	var found = false
+	for i, rt = range r.routes {
+		if rt == route {
+			found = true
+			if i == len(r.routes)+1 {
+				r.routes = r.routes[:i]
+			} else {
+				r.routes = append(r.routes[:i], r.routes[i+1:]...)
+			}
+			break
+		}
+	}
+
+	if found && route.GetName() != "" {
+		delete(r.namedRoutes, route.GetName())
+	}
+
+	r.lock.Unlock()
+}
+
+// RemoveNamedRoute removes namedRoute from the list and named routers
+func (r *Router) RemoveNamedRoute(name string) {
+	route := r.namedRoutes[name]
+	if route != nil {
+		r.RemoveRoute(route)
+	}
 }
 
 // Name registers a new route with a name.
@@ -371,6 +412,7 @@ var SkipRouter = errors.New("skip this router")
 type WalkFunc func(route *Route, router *Router, ancestors []*Route) error
 
 func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {
+	r.lock.RLock()
 	for _, t := range r.routes {
 		err := walkFn(t, r, ancestors)
 		if err == SkipRouter {
@@ -398,6 +440,7 @@ func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {
 			ancestors = ancestors[:len(ancestors)-1]
 		}
 	}
+	r.lock.RUnlock()
 	return nil
 }
 

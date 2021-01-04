@@ -140,6 +140,8 @@ func (r *Route) Name(name string) *Route {
 	if r.name != "" {
 		r.err = fmt.Errorf("mux: route already has name %q, can't set %q",
 			r.name, name)
+	} else if r.namedRoutes[name] != nil {
+		r.err = fmt.Errorf("mux: route with name %q already exists", name)
 	}
 	if r.err == nil {
 		r.name = name
