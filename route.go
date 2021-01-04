@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // Route stores information to match a request and build URLs.
@@ -485,7 +486,7 @@ func (r *Route) BuildVarsFunc(f BuildVarsFunc) *Route {
 // doesn't match.
 func (r *Route) Subrouter() *Router {
 	// initialize a subrouter with a copy of the parent route's configuration
-	router := &Router{routeConf: copyRouteConf(r.routeConf), namedRoutes: r.namedRoutes}
+	router := &Router{routeConf: copyRouteConf(r.routeConf), namedRoutes: r.namedRoutes, lock: &sync.RWMutex{}}
 	r.addMatcher(router)
 	return router
 }
