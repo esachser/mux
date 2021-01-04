@@ -147,6 +147,7 @@ func (r *Router) Match(req *http.Request, match *RouteMatch) bool {
 					match.Handler = r.middlewares[i].Middleware(match.Handler)
 				}
 			}
+			r.lock.RUnlock()
 			return true
 		}
 	}
@@ -413,6 +414,7 @@ type WalkFunc func(route *Route, router *Router, ancestors []*Route) error
 
 func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {
 	r.lock.RLock()
+	defer r.lock.RUnlock()
 	for _, t := range r.routes {
 		err := walkFn(t, r, ancestors)
 		if err == SkipRouter {
@@ -440,7 +442,6 @@ func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {
 			ancestors = ancestors[:len(ancestors)-1]
 		}
 	}
-	r.lock.RUnlock()
 	return nil
 }
 
