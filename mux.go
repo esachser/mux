@@ -138,7 +138,6 @@ func copyRouteRegexp(r *routeRegexp) *routeRegexp {
 // (eg: not found) has a registered handler, the handler is assigned to the Handler
 // field of the match argument.
 func (r *Router) Match(req *http.Request, match *RouteMatch) bool {
-	r.lock.RLock()
 	for _, route := range r.routes {
 		if route.Match(req, match) {
 			// Build middleware chain if no error was found
@@ -147,11 +146,9 @@ func (r *Router) Match(req *http.Request, match *RouteMatch) bool {
 					match.Handler = r.middlewares[i].Middleware(match.Handler)
 				}
 			}
-			r.lock.RUnlock()
 			return true
 		}
 	}
-	r.lock.RUnlock()
 
 	if match.MatchErr == ErrMethodMismatch {
 		if r.MethodNotAllowedHandler != nil {
@@ -290,7 +287,7 @@ func (r *Router) NewRoute() *Route {
 	return route
 }
 
-// RemoveRoute removes route from list and Named routers
+// RemoveRoute removes route from list and Named routes
 func (r *Router) RemoveRoute(route *Route) {
 	r.lock.Lock()
 	var i int
@@ -299,8 +296,10 @@ func (r *Router) RemoveRoute(route *Route) {
 	for i, rt = range r.routes {
 		if rt == route {
 			found = true
-			if i == len(r.routes)+1 {
+			if i == len(r.routes)-1 {
 				r.routes = r.routes[:i]
+			} else if i == 0 {
+				r.routes = r.routes[1:]
 			} else {
 				r.routes = append(r.routes[:i], r.routes[i+1:]...)
 			}
@@ -315,7 +314,7 @@ func (r *Router) RemoveRoute(route *Route) {
 	r.lock.Unlock()
 }
 
-// RemoveNamedRoute removes namedRoute from the list and named routers
+// RemoveNamedRoute removes namedRoute from the list and named routes
 func (r *Router) RemoveNamedRoute(name string) {
 	route := r.namedRoutes[name]
 	if route != nil {
@@ -413,8 +412,6 @@ var SkipRouter = errors.New("skip this router")
 type WalkFunc func(route *Route, router *Router, ancestors []*Route) error
 
 func (r *Router) walk(walkFn WalkFunc, ancestors []*Route) error {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
 	for _, t := range r.routes {
 		err := walkFn(t, r, ancestors)
 		if err == SkipRouter {
